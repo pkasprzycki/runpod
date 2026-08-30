@@ -36,9 +36,9 @@ def load_pack_meta(pack_dir: Path) -> dict:
         if world_path.is_file()
         else {
             "hdri": "warehouse_fair",
-            "strength": 0.1,
-            "exposure": 0.02,
-            "color": [0.034, 0.037, 0.044],
+            "strength": 0.38,
+            "exposure": 0.55,
+            "color": [0.09, 0.095, 0.11],
         }
     )
     hero = cameras.get("hero") or {}
@@ -86,30 +86,32 @@ scene.cycles.samples = samples
 scene.cycles.use_denoising = True
 scene.cycles.denoiser = "OPENIMAGEDENOISE"
 scene.cycles.use_adaptive_sampling = True
-scene.cycles.adaptive_threshold = 0.01
-scene.cycles.max_bounces = 12
-scene.cycles.diffuse_bounces = 4
-scene.cycles.glossy_bounces = 6
+scene.cycles.adaptive_threshold = 0.005
+if hasattr(scene.cycles, "adaptive_min_samples"):
+    scene.cycles.adaptive_min_samples = 48
+scene.cycles.max_bounces = 16
+scene.cycles.diffuse_bounces = 8
+scene.cycles.glossy_bounces = 8
 scene.cycles.transmission_bounces = 8
 scene.cycles.transparent_max_bounces = 8
 scene.cycles.caustics_reflective = False
 scene.cycles.caustics_refractive = False
-scene.cycles.sample_clamp_direct = 12.0
-scene.cycles.sample_clamp_indirect = 8.0
+scene.cycles.sample_clamp_direct = 16.0
+scene.cycles.sample_clamp_indirect = 10.0
 scene.render.dither_intensity = 1.0
-for vt in (str(world_cfg.get("viewTransform", "AgX")), "AgX", "Filmic", "Standard"):
+for vt in (str(world_cfg.get("viewTransform", "Filmic")), "Filmic", "AgX", "Standard"):
     try:
         scene.view_settings.view_transform = vt
         break
     except Exception:
         continue
-for look in (str(world_cfg.get("look", "Punchy")), "Punchy", "Medium High Contrast", "None"):
+for look in (str(world_cfg.get("look", "Medium Contrast")), "Medium Contrast", "None"):
     try:
         scene.view_settings.look = look
         break
     except Exception:
         continue
-scene.view_settings.exposure = float(world_cfg.get("exposure", 0.02))
+scene.view_settings.exposure = float(world_cfg.get("exposure", 0.55))
 scene.view_settings.gamma = 1.0
 
 prefs = bpy.context.preferences.addons.get("cycles")
@@ -146,7 +148,7 @@ direction = target - pos
 if direction.length < 1e-6:
     direction = Vector((0, 0, -1))
 cam_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
-use_dof = world_cfg.get("dof", True) not in (False, 0, "0")
+use_dof = world_cfg.get("dof", False) not in (False, 0, "0")
 cam_data.dof.use_dof = bool(use_dof)
 cam_data.dof.focus_distance = float(world_cfg.get("focusDistance") or direction.length)
 cam_data.dof.aperture_fstop = float(world_cfg.get("fStop", 5.6))
@@ -175,7 +177,58 @@ for obj in bpy.data.objects:
         for poly in obj.data.polygons:
             poly.use_smooth = True
 
+def upgrade_imported_materials():
+    for mat in bpy.data.materials:
+        name = (mat.name or "").lower()
+        if not mat.use_nodes:
+            mat.use_nodes = True
+        nt = mat.node_tree
+        if not nt:
+            continue
+        principled = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if not principled:
+            continue
+        skip_bevel = any(k in name for k in ("hall-floor", "hall-shell", "hall-aisle", "hall-truss"))
+        if not skip_bevel and not any(n.type == "BEVEL" for n in nt.nodes):
+            bevel = nt.nodes.new("ShaderNodeBevel")
+            bevel.inputs["Radius"].default_value = 0.0016
+            bevel.samples = 4
+            nt.links.new(bevel.outputs["Normal"], principled.inputs["Normal"])
+        if "Emission Strength" in principled.inputs:
+            emit = principled.inputs["Emission Strength"].default_value
+            if "wall-branding" in name or "fascia" in name:
+                principled.inputs["Emission Strength"].default_value = max(emit, 2.1)
+            elif "hall-neighbor-fascia" in name:
+                principled.inputs["Emission Strength"].default_value = max(emit, 1.2)
+            elif "hall-neighbor" in name and emit > 1.1:
+                principled.inputs["Emission Strength"].default_value = 0.75
+        if "hall-floor" in name:
+            principled.inputs["Roughness"].default_value = 0.94
+            if "Sheen Weight" in principled.inputs:
+                principled.inputs["Sheen Weight"].default_value = 0.28
+        if "hall-visitor" in name:
+            principled.inputs["Roughness"].default_value = 0.94
+            principled.inputs["Metallic"].default_value = 0.0
+            if "Specular IOR Level" in principled.inputs:
+                principled.inputs["Specular IOR Level"].default_value = 0.1
+        if "booth-floor" in name or "octanorm-laminate" in name or "booth-wall" in name:
+            if "Roughness" in principled.inputs and not principled.inputs["Roughness"].is_linked:
+                noise = nt.nodes.new("ShaderNodeTexNoise")
+                noise.inputs["Scale"].default_value = 64
+                noise.inputs["Detail"].default_value = 8
+                ramp = nt.nodes.new("ShaderNodeMapRange")
+                ramp.inputs["From Min"].default_value = 0.35
+                ramp.inputs["From Max"].default_value = 0.65
+                ramp.inputs["To Min"].default_value = max(0.42, principled.inputs["Roughness"].default_value - 0.08)
+                ramp.inputs["To Max"].default_value = min(0.78, principled.inputs["Roughness"].default_value + 0.12)
+                nt.links.new(noise.outputs["Fac"], ramp.inputs["Value"])
+                nt.links.new(ramp.outputs["Result"], principled.inputs["Roughness"])
+
+upgrade_imported_materials()
+
 def add_area(name, loc, size, energy, color):
+    if energy <= 1:
+        return None
     light = bpy.data.lights.new(name, type="AREA")
     light.shape = "RECTANGLE"
     light.size = size[0]
@@ -183,7 +236,7 @@ def add_area(name, loc, size, energy, color):
     light.energy = energy
     light.color = color
     if hasattr(light, "spread"):
-        light.spread = math.radians(160)
+        light.spread = math.radians(170)
     obj = bpy.data.objects.new(name, light)
     obj.location = loc
     scene.collection.objects.link(obj)
@@ -193,21 +246,25 @@ def add_spot(name, loc, energy, color):
     light = bpy.data.lights.new(name, type="SPOT")
     light.energy = energy
     light.color = color
-    light.spot_size = math.radians(52)
-    light.spot_blend = 0.62
-    light.shadow_soft_size = 0.22
+    light.spot_size = math.radians(48)
+    light.spot_blend = 0.72
+    light.shadow_soft_size = 0.28
     obj = bpy.data.objects.new(name, light)
     obj.location = loc
     scene.collection.objects.link(obj)
     return obj
 
-key_energy = float(world_cfg.get("keyEnergy", 170))
-fill_energy = float(world_cfg.get("fillEnergy", 38))
-rim_energy = float(world_cfg.get("rimEnergy", 70))
+key_energy = float(world_cfg.get("keyEnergy", 0))
+fill_energy = float(world_cfg.get("fillEnergy", 0))
+rim_energy = float(world_cfg.get("rimEnergy", 0))
 spot_energy = float(world_cfg.get("spotEnergy", 95))
-add_area("HallKey", (target.x, target.y, 5.55), (5.2, 3.8), key_energy, (1.0, 0.97, 0.93))
-add_area("HallFill", (target.x - 2.6, target.y + 1.4, 4.4), (2.8, 2.1), fill_energy, (0.78, 0.84, 0.92))
-add_area("HallRim", (target.x + 2.4, target.y - 3.1, 4.9), (2.0, 1.5), rim_energy, (0.72, 0.78, 0.9))
+ceil_energy = float(world_cfg.get("ceilEnergy", 48))
+add_area("HallCeil", (target.x, target.y, 6.2), (18.0, 18.0), ceil_energy, (0.86, 0.89, 0.94))
+add_area("HallKey", (target.x, target.y, 5.4), (7.5, 5.5), key_energy, (1.0, 0.97, 0.93))
+add_area("HallFill", (target.x - 2.6, target.y + 1.4, 4.2), (4.2, 3.2), fill_energy, (0.82, 0.86, 0.93))
+add_area("HallRim", (target.x + 2.4, target.y - 3.1, 4.8), (2.4, 1.8), rim_energy, (0.76, 0.81, 0.9))
+mid = (pos + target) * 0.5
+add_area("AisleFill", (mid.x, mid.y, 3.6), (5.5, 4.0), fill_energy * 0.7, (0.9, 0.92, 0.96))
 
 spot_i = 0
 for obj in list(bpy.data.objects):

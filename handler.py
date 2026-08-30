@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 from render import render_pack
 
-DEFAULT_SAMPLES = 256
+DEFAULT_SAMPLES = 384
 DEFAULT_RESOLUTION = (1920, 1080)
 RENDER_TIMEOUT_S = 480
 
