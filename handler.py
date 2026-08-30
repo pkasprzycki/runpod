@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runpod serverless handler: download pack, render Cycles PNG, PUT to presigned URL."""
+"""Runpod serverless handler: download pack, render Cycles PNG or ZIP, PUT to presigned URL."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from render import render_pack
 
 DEFAULT_SAMPLES = 384
 DEFAULT_RESOLUTION = (1920, 1080)
-RENDER_TIMEOUT_S = 480
+RENDER_TIMEOUT_S = 720
 
 
 def download_url(url: str, dest: Path) -> Path:
@@ -25,15 +25,18 @@ def download_url(url: str, dest: Path) -> Path:
     return dest
 
 
-def upload_png(url: str, png_path: Path) -> None:
-    data = png_path.read_bytes()
+def upload_png(url: str, file_path: Path) -> None:
+    data = file_path.read_bytes()
     if len(data) < 32:
-        raise RuntimeError("Render produced an empty PNG")
+        raise RuntimeError("Render produced an empty file")
+    content_type = (
+        "application/zip" if file_path.suffix.lower() == ".zip" else "image/png"
+    )
     req = Request(
         url,
         data=data,
         method="PUT",
-        headers={"Content-Type": "image/png", "Content-Length": str(len(data))},
+        headers={"Content-Type": content_type, "Content-Length": str(len(data))},
     )
     with urlopen(req, timeout=120) as res:
         res.read()
@@ -58,15 +61,16 @@ def process_job(
 
     work = Path(tempfile.mkdtemp(prefix="cycles-job-"))
     pack_path = work / "pack.zip"
-    png_path = work / "still.png"
+    kind = str(inp.get("outputKind") or "png").lower()
+    out_path = work / ("stills.zip" if kind == "zip" else "still.png")
     download(str(pack_url), pack_path)
     render(
         pack_path,
-        png_path,
+        out_path,
         samples=samples,
         resolution=(int(resolution[0]), int(resolution[1])),
     )
-    upload(str(output_put), png_path)
+    upload(str(output_put), out_path)
     return {
         "ok": True,
         "jobId": inp.get("jobId"),

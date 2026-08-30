@@ -81,6 +81,8 @@ class CyclesWorkerTests(unittest.TestCase):
         self.assertIn("use_adaptive_sampling", source)
         self.assertIn("ShaderNodeBevel", source)
         self.assertIn("upgrade_imported_materials", source)
+        self.assertIn("aim_camera", source)
+        self.assertIn('meta["cameras"].get("views")', source)
 
     def test_process_job_requires_presigned_urls(self) -> None:
         with self.assertRaises(ValueError):

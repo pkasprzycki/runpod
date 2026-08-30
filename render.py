@@ -53,6 +53,8 @@ import json
 import math
 import os
 import sys
+import zipfile
+from pathlib import Path
 
 import bpy
 from mathutils import Vector
@@ -350,8 +352,49 @@ if grain > 0:
 comp = tree.nodes.new("CompositorNodeComposite")
 tree.links.new(current, comp.inputs["Image"])
 
-scene.frame_set(1)
-bpy.ops.render.render(write_still=True)
+def aim_camera(shot):
+    shot_pos = Vector(shot["position"])
+    shot_target = Vector(shot["target"])
+    cam_obj.location = shot_pos
+    direction = shot_target - shot_pos
+    if direction.length < 1e-6:
+        direction = Vector((0, 0, -1))
+    cam_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    cam_data.angle = math.radians(float(shot.get("fov") or 55))
+    if cam_data.dof.use_dof:
+        cam_data.dof.focus_distance = float(world_cfg.get("focusDistance") or direction.length)
+
+shots = []
+views = meta["cameras"].get("views")
+if isinstance(views, list):
+    for view in views:
+        if isinstance(view, dict) and "position" in view and "target" in view:
+            shots.append(view)
+if not shots:
+    shots = [hero]
+
+out = Path(out_path)
+rendered = []
+for i, shot in enumerate(shots):
+    aim_camera(shot)
+    name = "".join(
+        c if c.isalnum() or c in "-_" else "_"
+        for c in str(shot.get("id") or "view-%d" % i)
+    )
+    dest = out if len(shots) == 1 else out.parent / ("%s.png" % name)
+    scene.render.filepath = str(dest)
+    scene.frame_set(1)
+    bpy.ops.render.render(write_still=True)
+    rendered.append(dest)
+
+if len(rendered) > 1:
+    zip_path = out if out.suffix.lower() == ".zip" else out.with_suffix(".zip")
+    with zipfile.ZipFile(str(zip_path), "w") as zf:
+        for png in rendered:
+            zf.write(str(png), png.name)
+    if zip_path != out:
+        import shutil
+        shutil.copyfile(str(zip_path), str(out))
 """
 
 
@@ -400,7 +443,7 @@ def render_pack(
         ]
         subprocess.run(cmd, check=True)
         if not out_path.is_file():
-            raise RuntimeError("Blender finished without writing a PNG")
+            raise RuntimeError("Blender finished without writing output")
         return out_path
     finally:
         shutil.rmtree(work, ignore_errors=True)
