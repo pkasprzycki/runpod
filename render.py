@@ -196,12 +196,16 @@ def upgrade_imported_materials():
             nt.links.new(bevel.outputs["Normal"], principled.inputs["Normal"])
         if "Emission Strength" in principled.inputs:
             emit = principled.inputs["Emission Strength"].default_value
-            if "wall-branding" in name or "fascia" in name:
-                principled.inputs["Emission Strength"].default_value = max(emit, 2.1)
+            if "screen-graphic" in name or name == "screen":
+                principled.inputs["Emission Strength"].default_value = min(emit if emit > 0 else 0.55, 0.7)
+            elif "wall-branding" in name:
+                principled.inputs["Emission Strength"].default_value = min(emit if emit > 0 else 0.55, 0.75)
             elif "hall-neighbor-fascia" in name:
-                principled.inputs["Emission Strength"].default_value = max(emit, 1.2)
-            elif "hall-neighbor" in name and emit > 1.1:
-                principled.inputs["Emission Strength"].default_value = 0.75
+                principled.inputs["Emission Strength"].default_value = min(emit if emit > 0 else 0.4, 0.55)
+            elif "hall-neighbor" in name and emit > 0.7:
+                principled.inputs["Emission Strength"].default_value = 0.4
+            elif emit > 1.2:
+                principled.inputs["Emission Strength"].default_value = 0.8
         if "hall-floor" in name:
             principled.inputs["Roughness"].default_value = 0.94
             if "Sheen Weight" in principled.inputs:
