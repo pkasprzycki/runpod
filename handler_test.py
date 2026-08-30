@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from handler import process_job
-from render import extract_pack, load_pack_meta, main as render_main
+from render import blender_script_source, extract_pack, load_pack_meta, main as render_main
 
 
 def write_fixture_zip(path: Path) -> Path:
@@ -71,6 +71,14 @@ class CyclesWorkerTests(unittest.TestCase):
         self.assertEqual(calls, ["download", "render", "upload"])
         self.assertTrue(result["ok"])
         self.assertEqual(result["jobId"], "job-1")
+
+    def test_blender_script_uses_photographic_hall_lights(self) -> None:
+        source = blender_script_source()
+        self.assertIn("sensor_fit", source)
+        self.assertIn("hall-spot", source)
+        self.assertIn("use_dof", source)
+        self.assertIn("FOG_GLOW", source)
+        self.assertIn("use_adaptive_sampling", source)
 
     def test_process_job_requires_presigned_urls(self) -> None:
         with self.assertRaises(ValueError):
