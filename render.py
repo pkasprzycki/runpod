@@ -261,12 +261,14 @@ def add_spot(name, loc, energy, color):
     return obj
 
 key_energy = float(world_cfg.get("keyEnergy", 0))
+booth_energy = float(world_cfg.get("boothKeyEnergy", 0))
 fill_energy = float(world_cfg.get("fillEnergy", 0))
 rim_energy = float(world_cfg.get("rimEnergy", 0))
 spot_energy = float(world_cfg.get("spotEnergy", 95))
 ceil_energy = float(world_cfg.get("ceilEnergy", 48))
 add_area("HallCeil", (target.x, target.y, 6.2), (18.0, 18.0), ceil_energy, (0.86, 0.89, 0.94))
 add_area("HallKey", (target.x, target.y, 5.4), (7.5, 5.5), key_energy, (1.0, 0.97, 0.93))
+add_area("BoothKey", (target.x, target.y, 3.15), (4.4, 3.8), booth_energy, (1.0, 0.97, 0.93))
 add_area("HallFill", (target.x - 2.6, target.y + 1.4, 4.2), (4.2, 3.2), fill_energy, (0.82, 0.86, 0.93))
 add_area("HallRim", (target.x + 2.4, target.y - 3.1, 4.8), (2.4, 1.8), rim_energy, (0.76, 0.81, 0.9))
 mid = (pos + target) * 0.5
